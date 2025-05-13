@@ -1,2 +1,5 @@
 __pycache__/
 desktop.ini
+conda activate vrgame
+cd C:\Users\xv367\OneDrive\바탕 화면\객체지향\mediapipe\Virtual-Game-Controller
+python Main.py

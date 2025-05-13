@@ -1,173 +1,71 @@
-from math import hypot
-from mediapipe import solutions
-from cv2 import line, circle, cvtColor, flip, FILLED, COLOR_BGR2RGB
+import cv2
+import mediapipe as mp
 import numpy as np
 
-
 class Hand_Controller:
-    def __init__(self,mode=False,max_hands=1,detection_con=0.7,track_confidence=0.5):
-        """
-        Args:
-            max_hands (int):        Defaults to 1.
-                Represents the maximum no. of handes to detect in a frame at a time.
-            detection_con (float):  Defaults to 0.7.
-                Confidence in the detection of hande with-in the frame 
-            track_confidence (float):Defaults to 0.6.
-                Confidence of detecting the hand-movement between frame, i.e. Confidence to detecrmined the track change of hand.
-        Custom-Class made to get the Hand-gesture , position, and state of each finger
-        """
-        self.mpHands = solutions.hands
-        self.max_hand = max_hands
-        self.hands = self.mpHands.Hands(mode,max_hands,1,detection_con,track_confidence)
-        self.mpdraw = solutions.drawing_utils
+    def __init__(self):
+        self.mpHands = mp.solutions.hands
+        self.hands = self.mpHands.Hands(static_image_mode=False, max_num_hands=1, min_detection_confidence=0.5, min_tracking_confidence=0.5)
+        self.mpDraw = mp.solutions.drawing_utils
+        self.fingertips = [4, 8, 12, 16, 20]
+        self.lmlist = []
+        self.fingers_up_status = np.array([])
+
+    def findhand(self, frame, draw=True):
+        """손을 감지하고 필요한 경우 손의 랜드마크를 그림"""
+        imgRGB = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        self.results = self.hands.process(imgRGB)
         
-        self.fingerup_list = np.array([])
-        self.lm_list = []    
-        self.tip_id = [4,8,12,16,20]
-        self.close_tip_id = [5,6,10,14,18]
-        self.hand_side = None
-
-    def findhand(self,img,draw=False,fliped_img=True):
-        """Method used to find hands with in the given frame/image
-
-        Args:
-            img     : Image onto which hands are needed to be find
-            draw (bool): Need to draw hand landmarks. Defaults to False.
-            fliped_img (bool): Image passed as agrgument is Flipped or not. Defaults to True.
-
-        Returns:
-            cv2-image: image onto which landmarks ar drawn
-        """
-        #=== Getting the image in BGR format ====================================
-        #=== Then flipping the image for better understanding ===================
-        self.fliped_img = fliped_img
-        RGBimg = cvtColor(img,COLOR_BGR2RGB)
-        if self.fliped_img:
-            self.img = img  
-        else:
-            self.img =  flip(img,1)
-            RGBimg = flip(RGBimg,1)
-        #=== Processing the Hand position and ===================================
-        self.result = self.hands.process(RGBimg)
-        #=== Drawing the Landmarks of the Hand, if given draw ===================
-        lm_list = []       
-        if self.result.multi_hand_landmarks: 
-            for handlms in self.result.multi_hand_landmarks:
+        if self.results.multi_hand_landmarks:
+            for handLms in self.results.multi_hand_landmarks:
                 if draw:
-                    self.mpdraw.draw_landmarks(img,handlms,self.mpHands.HAND_CONNECTIONS)
-                if self.max_hand == 1:
-                    given_hand = self.result.multi_hand_landmarks[0]
-                    for id, lm in enumerate(given_hand.landmark):
-                        h ,w , _ = self.img.shape
-                        cx, cy = int(lm.x*w),int(lm.y*h)
-                        lm_list.append([id,cx,cy])
-        self.lm_list = lm_list
-        return img
-    
-    def findPosition(self,handno=0):
-        """
-        Method used to find the postion of hand lanmarks in the image
+                    self.mpDraw.draw_landmarks(frame, handLms, self.mpHands.HAND_CONNECTIONS)
+        return frame
 
-        Args:
-            handno (int) : If here are multi hands, select a specific hand to find it's landmark position. Defaults to 0.
-
-        Returns:
-            lm_list : list of coordinates of each handlandmarks in the image along with there landmark id.
-        """
-        if handno == 0:
-            return self.lm_list
-        
-        lm_list = []
-        if self.result.multi_hand_landmarks:    
-            given_hand = self.result.multi_hand_landmarks[handno]
-            for id, lm in enumerate(given_hand.landmark):
-                h ,w , _ = self.img.shape
-                cx, cy = int(lm.x*w),int(lm.y*h)
-                lm_list.append([id,cx,cy])
-        self.lm_list = lm_list
-        return self.lm_list
+    def findPosition(self, draw=False):
+        """손의 랜드마크 위치 찾기"""
+        self.lmlist = []
+        if self.results.multi_hand_landmarks:
+            hand = self.results.multi_hand_landmarks[0]
+            for id, lm in enumerate(hand.landmark):
+                h, w, c = 720, 960, 3  # 이미지 높이, 너비 기본값
+                cx, cy = int(lm.x * w), int(lm.y * h)
+                self.lmlist.append([id, cx, cy])
+        return self.lmlist
 
     def fingersUp(self):
-        """
-        Method used to find whether the finges and thum are open or closed
-
-        Returns:
-            fingerup_list : list of states of each finger in the hand
-        """
-        self.fingerup_list = np.array([])
-        if self.lm_list:
-            #==== Checking whther left hand or right hand =======================
-            #==== And then determining the Thumb state:- Open or Close ==========
-            if self.lm_list[0][1] > self.lm_list[1][1]:
-                self.hand_side = 'right'
-                if self.lm_list[self.tip_id[0]][1] < self.lm_list[self.close_tip_id[0]][1]  :
-                    self.fingerup_list = np.append(self.fingerup_list,[1])
-                else: 
-                    # self.fingerup_list.append(0)
-                    self.fingerup_list = np.append(self.fingerup_list,[0])
-            else :
-                self.hand_side = 'left'
-                if self.lm_list[self.tip_id[0]][1] > self.lm_list[self.close_tip_id[0]][1]  :
-                    self.fingerup_list = np.append(self.fingerup_list,[1])
-                else: 
-                    self.fingerup_list = np.append(self.fingerup_list,[0])
-            #==== Checking the state of the Fingers:- Open or Close =============
-            for id in range(1,5):
-                if self.lm_list[self.tip_id[id]][2] < self.lm_list[self.close_tip_id[id]][2]:
-                    self.fingerup_list =  np.append(self.fingerup_list,[1])
-                else: 
-                    self.fingerup_list = np.append(self.fingerup_list,[0])
-                #====================================================================
-        return self.fingerup_list
-        
-    def findDistance(self,img,F1,F2,draw_f=True,draw_line=True,draw_cntr=False,finger_up=True):
-        """
-        Args:
-            img : image onto which landmarks are to be drawn
-            F1  : Finger 1 id no.
-            F2  : Finger 2 id no.
-            draw_f (bool)   : Do fingers are needed to be highlighted or not. Defaults to True.
-            draw_line (bool): Is there any need of line conecting fingers to be highlighted or not. Defaults to True.
-            draw_cntr (bool): Do centre point is needed to be highlighted or not. Defaults to False.
-            finger_up (bool): Finger state. Defaults to True.
-
-        Returns:
-            distance        : distance btw the two fingers
-            tuple (cx, cy)  : center point btw the fingers
-        """
-        f1 = self.tip_id[F1]
-        f2 = self.tip_id[F2]
-        distance = 0
-        cx, cy = 0 ,0
-
-        def find():
-            """Used to find the distance btw the two fingers and draw the connecting lines btw the finger
-
-            Returns:
-                dis             : distance btw the fingers
-                tuple (cx, cy)  : center point btw the fingers
-            """
-            f1_x,f1_y = self.lm_list[f1][1:]
-            f2_x,f2_y = self.lm_list[f2][1:]
-            cx,cy = (f1_x+f2_x)//2, (f1_y+f2_y)//2 
-            if draw_line:
-                line(img,(f1_x,f1_y),(f2_x,f2_y),(61,90,128),4)
-            if draw_f:
-                circle(img,(f1_x,f1_y),10,(0,29,62),FILLED)
-                circle(img,(f1_x,f1_y),7,(0,53,102),FILLED)
-                circle(img,(f2_x,f2_y),10,(0,29,62),FILLED)
-                circle(img,(f2_x,f2_y),7,(0,53,102),FILLED)
-            if draw_cntr:
-                circle(img,(cx,cy),8,(224,251,252),FILLED)
-            dis = hypot(f2_x - f1_x,f2_y - f1_y)
-            return dis, (cx, cy)
-        
-        if (self.lm_list != []) and (self.fingerup_list.size != 0):
-            if finger_up:
-                if (self.fingerup_list[F1] == self.fingerup_list[F2] == 1):
-                    distance, (cx, cy) = find()
-                else:
-                    pass 
+        """손가락이 펴져 있는지 확인"""
+        fingers = []
+        if len(self.lmlist) != 0:
+            # 엄지
+            if self.lmlist[self.fingertips[0]][1] < self.lmlist[self.fingertips[0]-1][1]:
+                fingers.append(1)
             else:
-                distance = find()
-            return [distance , (cx, cy)]
+                fingers.append(0)
+
+            # 다른 손가락들
+            for id in range(1, 5):
+                if self.lmlist[self.fingertips[id]][2] < self.lmlist[self.fingertips[id]-2][2]:
+                    fingers.append(1)
+                else:
+                    fingers.append(0)
+            
+            return np.array(fingers)
+        return np.array([])
+
+    def findDistance(self, img, p1, p2, draw=True):
+        """두 손가락 사이의 거리 계산"""
+        if len(self.lmlist) >= max(p1, p2) + 1:
+            x1, y1 = self.lmlist[p1*4][1:] if p1 < 5 else self.lmlist[p1][1:]
+            x2, y2 = self.lmlist[p2*4][1:] if p2 < 5 else self.lmlist[p2][1:]
+            cx, cy = (x1 + x2) // 2, (y1 + y2) // 2
+            
+            if draw:
+                cv2.circle(img, (x1, y1), 10, (255, 0, 255), cv2.FILLED)
+                cv2.circle(img, (x2, y2), 10, (255, 0, 255), cv2.FILLED)
+                cv2.line(img, (x1, y1), (x2, y2), (255, 0, 255), 3)
+                cv2.circle(img, (cx, cy), 10, (255, 0, 255), cv2.FILLED)
+            
+            length = ((x2 - x1) ** 2 + (y2 - y1) ** 2) ** 0.5
+            return [length, (cx, cy)]
+        return [None, None]
