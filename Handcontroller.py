@@ -43,9 +43,18 @@ class Hand_Controller:
             else:
                 fingers.append(0)
 
+<<<<<<< HEAD
+            # 다른 손가락들 - 임계값 조정으로 더 정확한 감지
+            for id in range(1, 5):
+                # 손가락 끝이 관절보다 더 위에 있으면 펴진 상태(1), 그렇지 않으면 굽힘 상태(0)
+                # 임계값을 약간 조정하여 더 명확하게 구분
+                threshold = 10  # 픽셀 단위 임계값
+                if self.lmlist[self.fingertips[id]][2] < self.lmlist[self.fingertips[id]-2][2] - threshold:
+=======
             # 다른 손가락들
             for id in range(1, 5):
                 if self.lmlist[self.fingertips[id]][2] < self.lmlist[self.fingertips[id]-2][2]:
+>>>>>>> c0ecadc1869a0adc379e6eda1f61bd3f6b6df5e7
                     fingers.append(1)
                 else:
                     fingers.append(0)
