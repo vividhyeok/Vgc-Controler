@@ -9,11 +9,7 @@ from pynput.mouse import Controller as MouseController
 from pynput.mouse import Button
 import pydirectinput  # 추가
 
-<<<<<<< HEAD
 from Handcontroller import Hand_Controller
-=======
-from HandController import Hand_Controller
->>>>>>> c0ecadc1869a0adc379e6eda1f61bd3f6b6df5e7
 
 class VirtualGameController:
     def __init__(self):
