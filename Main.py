@@ -8,312 +8,578 @@ from PyQt5.QtCore import QTimer, Qt, pyqtSlot, QSize
 from PyQt5.QtGui import QImage, QPixmap, QIcon
 from VirtualGameController import VirtualGameController
 from pynput.keyboard import Key
-from pynput.mouse import Controller as mc
-from pynput.mouse import Button
-import cv2
+import numpy as np
 
-from win32com.client import Dispatch
-from win32api import GetSystemMetrics
+# 다크 모드 색상 테마 정의
+DARK_BG = "#1e1e1e"         # 배경색 (짙은 진한 회색)
+DARK_BG_LIGHT = "#2d2d30"   # 약간 밝은 배경색 (위젯 배경)
+DARK_TEXT = "#ffffff"       # 텍스트 색상 (흰색)
+DARK_TEXT_MUTED = "#b0b0b0" # 흐릿한 텍스트 색상 (연한 회색)
+DARK_ACCENT = "#569cd6"     # 강조색 (부드러운 파란색)
+DARK_ACCENT_ALT = "#c586c0" # 대체 강조색 (연한 보라색)
+DARK_BORDER = "#444444"     # 테두리 색상
+DARK_SUCCESS = "#4ec9b0"    # 성공 색상 (청록색)
+DARK_WARNING = "#d7ba7d"    # 경고 색상 (황금색)
+DARK_DANGER = "#ce9178"     # 위험/중지 색상 (연한 주황색)
 
-from numpy import interp
-from time import sleep, time
-
-from Handcontroller import Hand_Controller
-
-keyboard = kc()
-mouse  = mc()
-#================================================================================
-#=============== Machine Voice ==================================================
-voice_engine = Dispatch('SAPI.Spvoice')
-
-def say(audio):
-    """Used to Speak the text, given audio parameter"""
-    voice_engine.Speak(audio)
-
-say('Machine Voice connected')
-#=============== Main Program ===================================================
-def main():
-    """
-    Main function to run the program
-    """
-    def check_in_fing(point_list=[0,0],box=0):
-        """
-        Args:
-            point_list (list, optional): finger position on the image. (Defaults to [0,0])
-            box (int, optional): It describes which box value has to be returned(Defaults to 0.)
+class SettingsDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.parent = parent
+        self.setWindowTitle("키 매핑 설정")
+        self.setModal(True)
+        self.initUI()
+        self.resize(500, 400)  # 넉넉한 크기의 설정창
         
-        box = 0: Returns, is finger in the detection box.
-        box = 1: Returns, is finger only in the gesture box.
-        box = 2: Returns, on which state box fingeris inn.
-        box = 3: Returns, is finger on the qutting button box.
-        """
-        if box==0:
-            if start_x < point_list[0] < end_x and start_y < point_list[1] < hand_start_y:
-                return True
-            return False
-
-        if box==1:
-            if hand_start_x < point_list[0] < hand_end_x and hand_start_y < point_list[1] < hand_end_y:
-                return True
-            return False
-
-        elif box==2:
-            if start_x < point_list[0] < mid_x and start_y < point_list[1] < hand_start_y:
-                return 1
-            elif mid_x < point_list[0] < end_x and start_y < point_list[1] < hand_start_y:
-                return 2
+        # 다크모드 배경 적용
+        self.setStyleSheet(f"background-color: {DARK_BG}; color: {DARK_TEXT};")
         
-        elif box==3 :
-            if (start_x-100) < point_list[0] < start_x and start_y < point_list[1] < hand_start_y:
-                return True
-            return False
-        return 0
-    #===========================================================================
-    def mouse_pointer_click(centre, dis, Clicked):
+    def initUI(self):
+        layout = QVBoxLayout()
+        
+        # 사용 설명 추가 (기존 코드 유지)
+        info_label = QLabel("각 제스처에 매핑할 키를 선택하세요. 설정은 즉시 적용됩니다.")
+        info_label.setStyleSheet(f"font-size: 24px; color: {DARK_TEXT_MUTED}; padding: 10px;")
+        info_label.setWordWrap(True)
+        layout.addWidget(info_label)
+        
+        # 설정 그룹박스 (기존 코드 유지)
+        self.settings_group = QGroupBox("제스처 키 매핑 설정")
+        self.settings_group.setStyleSheet(f"font-size: 24px; color: {DARK_TEXT}; border: 1px solid {DARK_BORDER}; border-radius: 8px;")  
+        self.settings_layout = QFormLayout()
+        self.settings_layout.setVerticalSpacing(30)  # 간격 넓히기
+        
+        # 제스처별 키 매핑 드롭다운 (기존 코드 유지)
+        self.jump_combo = QComboBox()
+        self.up_combo = QComboBox()
+        self.down_combo = QComboBox()
+        self.left_combo = QComboBox()
+        self.right_combo = QComboBox()
+        
+        # 콤보박스 스타일 및 크기 설정 (기존 코드 유지)
+        combo_style = f"""
+            font-size: 25px;  # 일관성을 위해 22px로 통일
+            background-color: {DARK_BG_LIGHT};
+            color: {DARK_TEXT};
+            border: 1px solid {DARK_BORDER};
+            border-radius: 8px;
+            padding: 10px;  # 일관성을 위해 패딩 10px로 통일
         """
-        Args:
-            centre  : Middle Coordinates btw the two fingers
-            dis     : Distance btw the two fingers
-            Clicked : Interger that had stored previos clicked state
-        Returns click state.
-        """
-        cx,cy = centre
-        cv2.circle(Main_img,(cx,cy),15,(181,181,181),cv2.FILLED)   
-        if Clicked >= 1: Clicked = 0
+        
+        for combo in [self.jump_combo, self.up_combo, self.down_combo, 
+                    self.left_combo, self.right_combo]:
+            combo.setMinimumHeight(60)
+            combo.setStyleSheet(combo_style)
+        
+        # 현재 매핑 표시 레이블 추가 (새로운 코드)
+        self.jump_current = QLabel()
+        self.up_current = QLabel()
+        self.down_current = QLabel()
+        self.left_current = QLabel()
+        self.right_current = QLabel()
+        
+        # 현재 매핑 레이블 스타일 설정 (새로운 코드)
+        for label in [self.jump_current, self.up_current, self.down_current, 
+                    self.left_current, self.right_current]:
+            label.setStyleSheet(f"color: {DARK_ACCENT}; font-size: 22px; padding-left: 12px;")
+        
+        # 드롭다운에 키 옵션 추가 (기존 코드 유지)
+        for combo in [self.jump_combo, self.up_combo, self.down_combo, 
+                    self.left_combo, self.right_combo]:
+            for key_name in self.parent.key_options.keys():
+                combo.addItem(key_name)
+        
+        # SettingsDialog의 초기화에서 매핑 가져오는 부분 수정
+        # 기존 코드 (오류 발생)
+        current_mappings = self.parent.controller.gesture_mappings
 
-        if dis < 30:
-            cv2.circle(Main_img,(cx,cy),15,(0,252,51),cv2.FILLED)
-            if Clicked==0: Clicked = 1
+        # 수정된 코드
+        current_mappings = {
+            'jump': self.parent.controller.get_gesture_mapping('jump'),
+            'up': self.parent.controller.get_gesture_mapping('up'),
+            'down': self.parent.controller.get_gesture_mapping('down'),
+            'left': self.parent.controller.get_gesture_mapping('left'),
+            'right': self.parent.controller.get_gesture_mapping('right')
+        }
 
-        if Clicked == 1:
-            Clicked += 1
-        return Clicked
-    #===========================================================================
-    say('Getting Hand dectector')
-    Hand_detector = Hand_Controller()      # Creating hand-Detector 
-    #===========================================================================
-    V_dir, H_dir, Jump = 0, 0, 0
-    Controller_Mode = -1
-    #===========================================================================
-    # Setting up the fingers relted variable
-    Thumb = Index_Finger = Middle_Finger = Ring_Finger = Pinky_Finger = 1
-    sum_of_finger_state = 0
-    finger_up_state = []
-    #===========================================================================
-    prev_time, cur_time  =  0, 0        # Creating time counter to get the fps
-    Quit_confirm = False                # Variable that used to stop the program
-    #===========================================================================
-    # Font Type used in the text, that to be displayed in the image-frame
-    Font_type = cv2.FONT_HERSHEY_PLAIN
-    Font_size = 1
-    Font_color = (215,255,214)
-    Font_thickness = 2
-    #===========================================================================
-    # Mouse pointer cordinate variable
-    pointer_x, pointer_y = 0, 0
-    Clicked = 0
-    clk = 0
-    #===========================================================================
-    # Setting up the dimension & co-ordinate for the image-frame to recoginize the gesture
-    start_x, start_y, end_x, end_y = 225, 50, 575, 400
-    hand_start_x, hand_start_y, hand_end_x, hand_end_y = 225, 100, 575, 400
-    mid_x = (start_x + end_x)//2
-    scrn_width, scrn_height = GetSystemMetrics(0), GetSystemMetrics(1)
-    #===========================================================================
-    say('Getting Camera')
-    cap = cv2.VideoCapture(0)           # Initialising Camera object
-    cam_width,cam_height = 960,720      # And setiing up it's
-    cap.set(3,cam_width)                # Width and Height
-    cap.set(4,cam_height)               # According to ourself
-    say('Camera connected')
-    #==========================================================================
-    while True:
-        _ , cap_img = cap.read()        # reading the image from the camera
-        cur_time = time()               # storing the current time, [used to calculate FPS]
-        Main_img = cv2.flip(cap_img,1)  # Flipping the image; This image will be used for further processing
-        #======================================================================
-        state = ''                      # Setting up the state variable
-        Hand_Detection_check = False    # Variable to check detection of hand
-        # Finding hand in 'Main_img' frame using custom class 
-        Main_img = Hand_detector.findhand(Main_img,True)
-        # Finding up the position of each landmarks in the image
-        lm_list = Hand_detector.findPosition()
-        #======================================================================
-        # Setted Each Direction value -> 0
-        V_dir, H_dir, Jump = 0, 0, 0
-        #======================================================================
-        # If hand is detected then do some works; else pass
-        if lm_list:
-            Hand_Detection_check = True         # Set detection->true for further refernce
-            # Get the state of each finger; whether they are open or closed
-            finger_up_state = Hand_detector.fingersUp()
-            # getting each fingers coordinate list; such that they don't need to be fetched multiple times
-            Index_pos = lm_list[8][1:]
-            Middle_pos = lm_list[12][1:]
-            # Ring_pos = lm_list[16][1:]
-            Pinky_pos = lm_list[20][1:]
-            Thumb_pos = lm_list[4][1:]
-            #=============== Checking & Changing finger's State ===============
-            """
-            if any fingers is open,then check for gesture
-            else pass
-            """
-            if finger_up_state.size != 0 :
-                Index_finger_inn = check_in_fing(Index_pos)   # Checking whether Index & Middle finger
-                Middle_finger_inn = check_in_fing(Middle_pos) # are in the detection box
-                #==============================================================
-                if Index_finger_inn or Middle_finger_inn:
-                    """If Index & Middle finger are in the detection box check whether they are in the State-Change Button box"""
-                    Index_finger_button_in = check_in_fing(Index_pos,2)
-                    Middle_finger_button_in = check_in_fing(Middle_pos,2)
-                    if Index_finger_button_in == Middle_finger_button_in:
-                        """
-                        if index & middle finger are state-change button box, 
-                        find whether they are clicking or not
-                        also check in which box they are clicking-in;
-                        then change the Controller_mode according to the box
-                        """
-                        z = 0
-                        [dis , centre ]= Hand_detector.findDistance(Main_img,1,2)
-                        if centre and dis:
-                            Clicked = mouse_pointer_click(centre,dis,Clicked)
-                            if Clicked == 2: z = 1
-                        if Index_finger_button_in == 1 and z == 1 :
-                            """if fingers are in box 1 set controller_mode to 0 i.e. Arrow Controls"""
-                            state += " asdf"
-                            Controller_Mode = 0
-                        elif Index_finger_button_in == 2 and z == 1:
-                            """if fingers are in box 2 set controller_mode to 1 i.e. Mouse Controls"""
-                            state += " arrow"
-                            Controller_Mode = 1
-                else:
-                    """
+        key_names = {v: k for k, v in self.parent.key_options.items()}
+        
+        def get_key_name(key):
+            if key in key_names.keys():
+                return key_names[key]
+            return str(key).replace('Key.', '')
+        
+        # 콤보박스 현재 값 설정 (기존 코드 유지)
+        self.jump_combo.setCurrentText(get_key_name(current_mappings['jump']))
+        self.up_combo.setCurrentText(get_key_name(current_mappings['up']))
+        self.down_combo.setCurrentText(get_key_name(current_mappings['down']))
+        self.left_combo.setCurrentText(get_key_name(current_mappings['left']))
+        self.right_combo.setCurrentText(get_key_name(current_mappings['right']))
+        
+        # 현재 매핑 레이블 값 설정 (새로운 코드)
+        self.jump_current.setText(f"현재: {get_key_name(current_mappings['jump'])}")
+        self.up_current.setText(f"현재: {get_key_name(current_mappings['up'])}")
+        self.down_current.setText(f"현재: {get_key_name(current_mappings['down'])}")
+        self.left_current.setText(f"현재: {get_key_name(current_mappings['left'])}")
+        self.right_current.setText(f"현재: {get_key_name(current_mappings['right'])}")
+        
+        # 콤보박스 이벤트 연결 (기존 코드 유지)
+        self.jump_combo.currentTextChanged.connect(lambda: self.update_mapping('jump'))
+        self.up_combo.currentTextChanged.connect(lambda: self.update_mapping('up'))
+        self.down_combo.currentTextChanged.connect(lambda: self.update_mapping('down'))
+        self.left_combo.currentTextChanged.connect(lambda: self.update_mapping('left'))
+        self.right_combo.currentTextChanged.connect(lambda: self.update_mapping('right'))
+        
+        # 제스처 설명 레이블 추가
+        jump_desc = QLabel("모든 손가락을 구부리면(주먹) 점프합니다.")
+        up_desc = QLabel("중지 손가락만 구부리면 위로 이동합니다.")
+        down_desc = QLabel("약지 손가락만 구부리면 아래로 이동합니다.")
+        left_desc = QLabel("소지(새끼) 손가락만 구부리면 왼쪽으로 이동합니다.")
+        right_desc = QLabel("엄지 손가락만 구부리면 오른쪽으로 이동합니다.")
+        
+        # 설명 스타일 지정 (기존 코드 유지)
+        for label in [jump_desc, up_desc, down_desc, left_desc, right_desc]:
+            label.setStyleSheet(f"color: {DARK_TEXT_MUTED}; font-style: italic; font-size: 22px;")
+        
+        # 레이아웃 수정: 콤보박스 + 현재값 표시 (새로운 코드)
+        for gesture, combo, current, desc in [
+            ("점프", self.jump_combo, self.jump_current, jump_desc),
+            ("위로", self.up_combo, self.up_current, up_desc),
+            ("아래로", self.down_combo, self.down_current, down_desc),
+            ("왼쪽", self.left_combo, self.left_current, left_desc),
+            ("오른쪽", self.right_combo, self.right_current, right_desc)
+        ]:
+            # 콤보박스와 현재 레이블을 포함할 수평 레이아웃
+            combo_layout = QHBoxLayout()
+            combo_layout.addWidget(combo)
+            combo_layout.addWidget(current)
+            combo_layout.setStretch(0, 2)  # 콤보박스가 더 넓게
+            combo_layout.setStretch(1, 1)  # 현재 레이블은 좁게
+            
+            # 폼 레이아웃에 추가
+            self.settings_layout.addRow(QLabel(f'<span style="color: {DARK_TEXT}; font-size: 24px;">{gesture}:</span>'), combo_layout)
+            self.settings_layout.addRow("", desc)
+        
+        self.settings_group.setLayout(self.settings_layout)
+        
+        # 확인 버튼 (기존 코드 유지)
+        close_button = QPushButton("닫기")
+        close_button.setMinimumHeight(80)
+        close_button.setStyleSheet(f"""
+            font-size: 22px; 
+            background-color: {DARK_ACCENT}; 
+            color: {DARK_TEXT}; 
+            border-radius: 8px;
+            padding: 10px;
+        """)
+        close_button.clicked.connect(self.close)
+        
+        layout.addWidget(self.settings_group)
+        layout.addWidget(close_button)
+        
+        self.setLayout(layout)
+    
+    def update_mapping(self, gesture):
+        """제스처에 대한 키 매핑 업데이트"""
+        combo_map = {
+            'jump': self.jump_combo,
+            'up': self.up_combo,
+            'down': self.down_combo,
+            'left': self.left_combo,
+            'right': self.right_combo
+        }
+        
+        selected_key = combo_map[gesture].currentText()
+        key_value = self.parent.key_options[selected_key]
+        
+        # 컨트롤러에 매핑 설정
+        self.parent.controller.set_gesture_mapping(gesture, key_value)
+        
+        # 부모 창의 매핑 표시 업데이트
+        self.parent.update_key_mapping_display()
+
+class GameControllerGUI(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        
+        # 키매핑 사전 (먼저 정의)
+        self.key_options = {
+            'space': Key.space,
+            'up': Key.up,
+            'down': Key.down,
+            'left': Key.left,
+            'right': Key.right,
+            'enter': Key.enter,
+            'esc': Key.esc,
+            'tab': Key.tab,
+            'a': 'a',
+            'b': 'b',
+            'c': 'c',
+            'd': 'd',
+            'e': 'e',
+            'f': 'f',
+            'g': 'g',
+            'w': 'w',
+            's': 's',
+            'd': 'd',
+            'z': 'z',
+            'x': 'x',
+            '1': '1',
+            '2': '2',
+            '3': '3',
+            '4': '4'
+        }
+        
+        # 창 속성 변경 - 항상 위에 표시
+        self.setWindowFlags(Qt.WindowStaysOnTopHint)
+        
+        # 가상 게임 컨트롤러 생성
+        self.controller = VirtualGameController()
+        
+        # 컨트롤러 활성화 상태 설정 (기본값: 비활성화)
+        self.controller_active = False
+        self.compact_mode = False
+        
+        # UI 초기화
+        self.initUI()
+        
+        # 타이머 설정 (영상 프레임 처리)
+        self.timer = QTimer()
+        self.timer.timeout.connect(self.update_frame)
+        self.timer.start(30)  # 30ms 마다 프레임 업데이트
+        
+        # 상태 메시지 초기화
+        self.status_msg.setText("상태: 준비됨")
+        
+        # 현재 키 매핑 설정
+        self.update_key_mapping_display()
+
+    def initUI(self):
+        # 다크 모드 배경 적용
+        self.setStyleSheet(f"background-color: {DARK_BG}; color: {DARK_TEXT};")
+        
+        # 메뉴바 설정
+        self.setup_menu()
+        
+        # 메뉴바 폰트 크기 설정
+        menubar = self.menuBar()
+        menubar.setStyleSheet(f"font-size: 30px; background-color: {DARK_BG_LIGHT}; color: {DARK_TEXT}; border: none;")  
+        
+        # 메인 위젯 및 레이아웃 설정
+        self.central_widget = QWidget()
+        self.setCentralWidget(self.central_widget)
+        self.main_layout = QVBoxLayout(self.central_widget)
+        self.main_layout.setSpacing(20)  # 레이아웃 간격 확대
+        
+        # 카메라 화면 영역
+        self.video_layout = QVBoxLayout()
+        self.video_label = QLabel()
+        self.video_label.setAlignment(Qt.AlignCenter)
+        self.video_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.video_label.setMinimumSize(QSize(1280, 960))  # 카메라 화면 크기 2배 확대
+        self.video_label.setStyleSheet(f"background-color: {DARK_BG_LIGHT}; border: 1px solid {DARK_BORDER}; border-radius: 10px;")
+        self.video_layout.addWidget(self.video_label)
+        
+        # 사용 안내 메시지 추가
+        self.instruction_label = QLabel("손을 카메라 앞에서 움직여 보세요! 시작 버튼을 누르면 게임 제어가 시작됩니다.")
+        self.instruction_label.setStyleSheet(f"font-size: 28px; color: {DARK_TEXT_MUTED};")  # 글자 크기 확대
+        self.instruction_label.setAlignment(Qt.AlignCenter)
+        self.video_layout.addWidget(self.instruction_label)
+        
+        # 상태 표시 영역
+        self.status_msg = QLabel("상태: 준비됨")
+        self.status_msg.setStyleSheet(f"font-weight: bold; color: {DARK_ACCENT}; font-size: 24px;")  # 글자 크기 확대
+        self.video_layout.addWidget(self.status_msg)
+        
+        # 키 매핑 표시 영역
+        self.mapping_group = QGroupBox("현재 키 매핑")
+        self.mapping_group.setStyleSheet(f"""
+            font-size: 24px; 
+            color: {DARK_TEXT}; 
+            background-color: {DARK_BG_LIGHT}; 
+            border: 1px solid {DARK_BORDER}; 
+            border-radius: 8px;
+        """)  
+        self.mapping_layout = QHBoxLayout()
+        self.mapping_layout.setSpacing(15)  # 간격 확대
+        
+        self.jump_label = QLabel("점프: Space")
+        self.up_label = QLabel("위: Up")
+        self.down_label = QLabel("아래: Down")
+        self.left_label = QLabel("왼쪽: Left")
+        self.right_label = QLabel("오른쪽: Right")
+        
+        # 각 레이블 스타일 적용
+        label_style = f"padding: 10px; background-color: {DARK_BG_LIGHT}; border: 1px solid {DARK_BORDER}; border-radius: 8px; font-size: 22px; color: {DARK_ACCENT};"
+        for label in [self.jump_label, self.up_label, self.down_label, self.left_label, self.right_label]:
+            label.setStyleSheet(label_style)  # 글자 크기 및 패딩 확대
+        
+        self.mapping_layout.addWidget(self.jump_label)
+        self.mapping_layout.addWidget(self.up_label)
+        self.mapping_layout.addWidget(self.down_label)
+        self.mapping_layout.addWidget(self.left_label)
+        self.mapping_layout.addWidget(self.right_label)
+        
+        self.mapping_group.setLayout(self.mapping_layout)
+        
+        # 컨트롤 버튼
+        self.button_layout = QHBoxLayout()
+        self.button_layout.setSpacing(20)  # 버튼 간격 확대
+        
+        self.start_button = QPushButton("시작")
+        self.start_button.setStyleSheet(f"""
+            background-color: {DARK_SUCCESS}; 
+            color: {DARK_TEXT}; 
+            font-size: 32px; 
+            padding: 16px 32px;
+            border-radius: 10px;
+        """)
+        self.start_button.setMinimumHeight(80)  # 버튼 높이 확대
+        self.start_button.clicked.connect(self.start_controller)
+        
+        self.stop_button = QPushButton("정지")
+        self.stop_button.setStyleSheet(f"""
+            background-color: {DARK_DANGER}; 
+            color: {DARK_TEXT}; 
+            font-size: 32px; 
+            padding: 16px 32px;
+            border-radius: 10px;
+        """)
+        self.stop_button.setMinimumHeight(80)  # 버튼 높이 확대
+        self.stop_button.clicked.connect(self.stop_controller)
+        self.stop_button.setEnabled(False)
+        
+        self.button_layout.addWidget(self.start_button)
+        self.button_layout.addWidget(self.stop_button)
+        
+        # 메인 레이아웃에 컴포넌트 추가
+        self.main_layout.addLayout(self.video_layout)
+        self.main_layout.addWidget(self.mapping_group)
+        self.main_layout.addLayout(self.button_layout)
+        
+        # 윈도우 설정
+        self.setWindowTitle('가상 게임 컨트롤러')
+        self.resize(1600, 1400)  # 창 크기 2배 확대
+        self.show()
+    
+    def setup_menu(self):
+        # 메뉴바 생성
+        menubar = self.menuBar()
+        
+        # 설정 메뉴
+        settings_menu = menubar.addMenu('설정')
+        
+        # 키 매핑 설정 액션
+        key_mapping_action = QAction('키 매핑 설정', self)
+        key_mapping_action.triggered.connect(self.show_key_mapping_dialog)
+        settings_menu.addAction(key_mapping_action)
+        
+        # 항상 위에 표시 토글 액션
+        self.always_on_top_action = QAction('항상 위에 표시', self)
+        self.always_on_top_action.setCheckable(True)
+        self.always_on_top_action.setChecked(True)
+        self.always_on_top_action.triggered.connect(self.toggle_always_on_top)
+        settings_menu.addAction(self.always_on_top_action)
+    
+    def show_key_mapping_dialog(self):
+        """키 매핑 설정 다이얼로그 표시"""
+        dialog = SettingsDialog(self)
+        dialog.exec_()
+        
+    def toggle_always_on_top(self, checked):
+        """항상 위에 표시 설정 토글"""
+        if checked:
+            self.setWindowFlags(self.windowFlags() | Qt.WindowStaysOnTopHint)
+        else:
+            self.setWindowFlags(self.windowFlags() & ~Qt.WindowStaysOnTopHint)
+        self.show()  # 플래그 변경 후 창을 다시 표시해야 함
+    
+    def toggle_compact_mode(self, enable_compact=True):
+        """컴팩트 모드 전환"""
+        self.compact_mode = enable_compact
+        
+        if enable_compact:
+            # 컴팩트 모드에서 불필요한 요소 숨기기
+            self.mapping_group.hide()  # 키 매핑 그룹 숨기기
+            self.instruction_label.hide()
+            
+            # 비디오 레이블만 표시 (최소/최대 크기 조정)
+            self.video_label.setMinimumSize(QSize(320, 240))
+            self.video_label.setMaximumSize(QSize(400, 300))
+            
+            # 레이아웃 여백 줄이기
+            self.main_layout.setContentsMargins(5, 5, 5, 5)
+            self.main_layout.setSpacing(5)
+            self.video_layout.setSpacing(5)
+            
+            # 상태 메시지 폰트 크기 줄이기
+            self.status_msg.setStyleSheet(f"font-weight: bold; color: {DARK_ACCENT}; font-size: 25px;")
+            
+            # 버튼 크기 조정
+            for button in [self.start_button, self.stop_button]:
+                button.setMinimumHeight(40)
+                button.setStyleSheet(button.styleSheet().replace("font-size: 32px", "font-size: 25px"))
+            
+            # 창 크기 설정 (레이아웃 요소 숨긴 후 적용)
+            QTimer.singleShot(100, lambda: self.resize(400, 400))
+            self.setWindowTitle('가상 게임 컨트롤러 [실행 중]')
+                
+        else:
+            # 일반 모드 - 숨긴 요소 다시 표시
+            self.mapping_group.show()
+            self.instruction_label.show()
+            
+            # 레이아웃 여백 복원
+            self.main_layout.setContentsMargins(11, 11, 11, 11)
+            self.main_layout.setSpacing(20)
+            self.video_layout.setSpacing(10)
+            
+            # 비디오 레이블 크기 복원
+            self.video_label.setMinimumSize(QSize(1280, 960))
+            self.video_label.setMaximumSize(QSize(16777215, 16777215))
+            
+            # 상태 메시지 폰트 크기 복원
+            self.status_msg.setStyleSheet(f"font-weight: bold; color: {DARK_ACCENT}; font-size: 30px;")
+            
+            # 버튼 크기 복원
+            for button in [self.start_button, self.stop_button]:
+                button.setMinimumHeight(80)
+                button.setStyleSheet(button.styleSheet().replace("font-size: 16px", "font-size: 32px"))
+            
+            # 창 크기 복원
+            self.resize(1600, 1400)
+            self.setWindowTitle('가상 게임 컨트롤러')
+    
+    def update_mapping(self, gesture):
+        """제스처에 대한 키 매핑 업데이트"""
+        combo_map = {
+            'jump': self.jump_combo,
+            'up': self.up_combo,
+            'down': self.down_combo,
+            'left': self.left_combo,
+            'right': self.right_combo
+        }
+        
+        selected_key = combo_map[gesture].currentText()
+        key_value = self.key_options[selected_key]
+        
+        # 컨트롤러에 매핑 설정
+        self.controller.set_gesture_mapping(gesture, key_value)
+        
+        # 매핑 표시 업데이트
+        self.update_key_mapping_display()
+        
+        self.status_msg.setText(f"상태: {gesture} 제스처가 {selected_key} 키로 매핑됨")
+    
+    def update_key_mapping_display(self):
+        """현재 키 매핑 표시 업데이트"""
+        # 컨트롤러 현재 매핑 - 잘못된 코드
+        mapping = self.controller.get_gesture_mapping
+        
+        # 올바른 코드로 수정
+        mapping = {
+            'jump': self.controller.get_gesture_mapping('jump'),
+            'up': self.controller.get_gesture_mapping('up'),
+            'down': self.controller.get_gesture_mapping('down'),
+            'left': self.controller.get_gesture_mapping('left'),
+            'right': self.controller.get_gesture_mapping('right')
+        }
+        
+        # 매핑 표시 업데이트
+        key_names = {v: k for k, v in self.key_options.items()}
+        
+        def get_key_name(key):
+            if key in key_names.keys():
+                return key_names[key]
+            return str(key).replace('Key.', '')
+        
+        self.jump_label.setText(f"점프: {get_key_name(mapping['jump'])}")
+        self.up_label.setText(f"위: {get_key_name(mapping['up'])}")
+        self.down_label.setText(f"아래: {get_key_name(mapping['down'])}")
+        self.left_label.setText(f"왼쪽: {get_key_name(mapping['left'])}")
+        self.right_label.setText(f"오른쪽: {get_key_name(mapping['right'])}")
+    
+    @pyqtSlot()
+    def update_frame(self):
+        """카메라 프레임 업데이트 및 처리"""
+        try:
+            # 프레임 처리 (컨트롤러 활성화 여부 전달)
+            frame, quit_flag = self.controller.process_frame(self.controller_active)
+            
+            if frame is None or quit_flag:
+                self.stop_controller()
+                return
+            
+            # 디버그 정보 표시 - 숫자 대신 텍스트로 현재 인식된 제스처 표시
+            if self.controller_active:
+                # 모드 표시 부분 삭제 (키보드만 사용하므로)
+                
+                # 제스처 상태 텍스트로 변환
+                gestures = []
+                if self.controller.jump == 1:
+                    gestures.append("점프")
+                if self.controller.v_dir == 1:
+                    gestures.append("위로")
+                elif self.controller.v_dir == -1:
+                    gestures.append("아래로")
+                if self.controller.h_dir == -1:
+                    gestures.append("왼쪽")
+                elif self.controller.h_dir == 1:
+                    gestures.append("오른쪽")
                     
-                    """
-                    [Thumb,Index_Finger,Middle_Finger,Ring_Finger,Pinky_Finger] = finger_up_state
-                    sum_of_finger_state = sum(finger_up_state[1:])
-                    #==========================================================
-                    """ Check for each finger & thumb, whether they are in the detection & gesture box """
-                    Thumb_in = check_in_fing(Thumb_pos,1)
-                    Index_finger_in = check_in_fing(Index_pos,1)
-                    Middle_finger_in = check_in_fing(Middle_pos,1)
-                    # Ring_Finger_in = check_in_fing(Ring_pos,1)
-                    Pinky_Finger_in = check_in_fing(Pinky_pos,1)
-
-                    """ Checking for Index & Middle finger whether they are in Qutting button section """
-                    Index_fing_qt = check_in_fing(Index_pos,3)
-                    Middle_fing_qt = check_in_fing(Middle_pos,3)
-                    
-                    if sum_of_finger_state == 0:            # if all the fingers & thumb is closed
-                        if Thumb_in and not(Thumb):         # and thumb is in the gesture box
-                            state = state + "Jump "         # set Jump state to high
-                            Jump = 1
-                    else:
-                        """if any of the finger is open, check for other controls"""
-                        # Create Direction Controlls
-                        # Vertical Direction
-                        if Index_Finger and Index_finger_in:    # if only index finger is in getsure box and is open,
-                            if (not Middle_Finger):             # and middle finger is closed
-                                state = state + "Up "           # then set Vertical direction to +ve
-                                V_dir = 1
-                            elif Middle_finger_in and Middle_Finger and not(Ring_Finger):   # if only index & middle finger is in getsure box and is open,
-                                state = state + "Down "                                     # and ring finger is closed
-                                V_dir = -1                                                  # then set Vertical direction to +ve
-                        # Horizontal Direction
-                        if (Thumb and Thumb_in) and not(Pinky_Finger):          # if Thumb is in the gesture box and is open
-                            state = state + "Left "                             # and Pinky finger is closed, then set Horizontal direction to -ve i.e towarss left
-                            H_dir = -1
-                        elif (Pinky_Finger and Pinky_Finger_in) and not(Thumb): # if pinky finger is in the gesture box and is open and thumb is closed
-                            state = state + "Right "                            # then set Horizontal direction to +ve i.e. towards right
-                            H_dir = 1
-                    #==========================================================
-                    if Controller_Mode == 0:
-                        """Controller mode -> 0; is mouse control mode
-                        Available mouse controls are Pointer movement & Left-click"""
-                        if V_dir == 1:
-                            # IF vertical direction is +ve then pointer movement will occur
-                            px, py = lm_list[8][1:]                        
-                            pointer_x = int(interp(px,(hand_start_x,end_x),(0,scrn_width)))
-                            pointer_y = int(interp(py,(hand_start_y,end_y),(0,scrn_height)))
-                            #==== Mouse Pointer Movement ==============================
-                            state = "Mouse Pointer"
-                            cv2.circle(Main_img,(px,py),5,(200,200,200),cv2.FILLED)
-                            cv2.circle(Main_img,(px,py),10,(200,200,200),3)
-                            mouse.position = (int(pointer_x),int(pointer_y))
-                        else:
-                            # IF vertical direction is not +ve then left-click or quit-check wil happen
-                            [dis , centre ]= Hand_detector.findDistance(Main_img,1,2)
-                            if (Index_fing_qt and Middle_fing_qt) and sum_of_finger_state <= 3:
-                                """If Index & middle finger are in quit button box,then check for click in it."""
-                                state = "Quit Check"
-                                if centre and dis:
-                                    Clicked = mouse_pointer_click(centre,dis,Clicked)
-                                    if Clicked == 2: Quit_confirm = True
-                            if V_dir == -1 and (centre and dis):
-                                """If vertial direction is -ve then check for mouse left-click"""
-                                state = "Click mouse"
-                                Clicked = mouse_pointer_click(centre,dis,Clicked)
-                                if Clicked == 2:
-                                    if(clk == 0):
-                                        mouse.position = (int(pointer_x),int(pointer_y))
-                                        mouse.click(Button.left)   
-                                        clk+=1
-                                    else: clk -=1                    
-                    #==========================================================
-                    if Controller_Mode == 1:
-                        """Controller mode -> 1; is Keys control mode
-                        Available Keys controls are Left, Right, Up, Down & Space bar press"""
-                        # Horizontal direction control
-                        if H_dir == 1: 
-                            keyboard.press(Key.right)
-                        elif H_dir == -1: 
-                            keyboard.press(Key.left)
-                        else:
-                            keyboard.release(Key.right)
-                            keyboard.release(Key.left)
-                        
-                        # Vertical direction control
-                        if V_dir == 1: 
-                            keyboard.press(Key.up)
-                        elif V_dir == -1: 
-                            keyboard.press(Key.down)
-                        else:
-                            keyboard.release(Key.up)
-                            keyboard.release(Key.down)
-
-                        # Space-bar/Jump control
-                        if Jump == 1: keyboard.press(Key.space)
-                        else: keyboard.release(Key.space)
-        #======================================================================
-        # Puttign Text onto the Image for user to get the states & controls & othe r info required  
-        cv2.putText(Main_img,f'MOUSE',(start_x + 60,start_y + 30),Font_type,Font_size,Font_color,2)
-        cv2.putText(Main_img,f'ARROW',(mid_x + 60,start_y + 30),Font_type,Font_size,Font_color,2)
+                gesture_text = ", ".join(gestures) if gestures else "없음"
+                self.status_msg.setText(f"상태: 실행중 | 제스처: {gesture_text}")
+            
+            # OpenCV 프레임을 QImage로 변환
+            h, w, ch = frame.shape
+            bytes_per_line = ch * w
+            convert_to_qt_format = QImage(frame.data, w, h, bytes_per_line, QImage.Format_RGB888).rgbSwapped()
+            pixmap = QPixmap.fromImage(convert_to_qt_format)
+            
+            # QLabel에 표시
+            self.video_label.setPixmap(pixmap.scaled(
+                self.video_label.width(), 
+                self.video_label.height(), 
+                Qt.KeepAspectRatio
+            ))
+            
+        except Exception as e:
+            self.status_msg.setText(f"오류: {str(e)}")
+            self.stop_controller()
+    
+    def start_controller(self):
+        """컨트롤러 시작"""
+        self.controller_active = True
+        self.start_button.setEnabled(False)
+        self.stop_button.setEnabled(True)
+        self.status_msg.setText("상태: 컨트롤러 실행 중")
+        self.status_msg.setStyleSheet("font-weight: bold; color: #007bff; font-size: 24px;")
         
-        cv2.line(Main_img,(mid_x,start_y),(mid_x,hand_start_y),(10,10,250),2)            
-        cv2.rectangle(Main_img,(start_x, start_y),(end_x, end_y),(10,10,250),2)
-        cv2.rectangle(Main_img,(hand_start_x, hand_start_y),(hand_end_x, hand_end_y),(10,10,250),2)
+        # 컴팩트 모드로 전환
+        self.toggle_compact_mode(True)
         
-        cv2.putText(Main_img,f'DETECTION :- {Hand_Detection_check}',(40,20),Font_type,Font_size,Font_color,Font_thickness)
-        cv2.putText(Main_img,f'STATE :-{state}',(250,20),Font_type,Font_size,Font_color,Font_thickness)
+        # 알림 메시지 표시
+        self.status_msg.setText("컨트롤러가 활성화되었습니다. 제어하려는 게임을 클릭하세요.")
+        QTimer.singleShot(3000, lambda: self.status_msg.setText("상태: 실행 중"))
+    
+    def stop_controller(self):
+        """컨트롤러 정지"""
+        self.controller_active = False
+        self.start_button.setEnabled(True)
+        self.stop_button.setEnabled(False)
+        self.status_msg.setText("상태: 컨트롤러 정지됨")
         
-        cv2.putText(Main_img,f'QUIT',(start_x-65,start_y + 30),Font_type,Font_size,Font_color,2)
-        cv2.rectangle(Main_img,(start_x-100, start_y),(start_x, hand_start_y),(10,10,250),2)
-        #======================================================================
-        type_controller = "Mouse" if Controller_Mode == 0 else 'Arrow'
-        cv2.putText(Main_img,f"Controll Type:-{type_controller}",(250,40),Font_type,Font_size,Font_color,Font_thickness)
-        #======= Displaying the FPS of the CV Apk =============================
-        fps = 1/(cur_time-prev_time)
-        prev_time = cur_time
-        cv2.putText(Main_img,f'FPS:- {int(fps)}',(40,40),Font_type,Font_size,(90,140,185),Font_thickness)
-        #======== Displaying the Main Image ===================================
-        cv2.imshow('Game Controller',Main_img)
-        if cv2.waitKey(10) == ord("q"): Quit_confirm = True
-        #======= Quiting the apk ==============================================
-        if Quit_confirm:
-            say('Quitting')
-            sleep(1)
-            break
+        # 일반 모드로 복원
+        self.toggle_compact_mode(False)
+        
+        # 모든 키 해제
+        self.controller.release_all_keys()    
+    def closeEvent(self, event):
+        """앱 종료 시 처리"""
+        self.controller.close()
+        event.accept()
 
-#============================================
-if __name__== '__main__':
-    main()
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    window = GameControllerGUI()
+    sys.exit(app.exec_())
